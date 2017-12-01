@@ -20,7 +20,8 @@ def main():
         with h5py.File(fname,'r') as f:
             pylab.tricontourf(f['geometry']['x_coordinate'],
                               f['geometry']['y_coordinate'],
-                              numpy.log10(f['hydrodynamic']['density']))
+                              numpy.log10(f['hydrodynamic']['density']),
+                              50)
             pylab.title('t = %10.2f' % numpy.array(f['time'])[0])
             pylab.colorbar()
             pylab.savefig(fname.replace('.h5','.png'))
