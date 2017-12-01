@@ -314,71 +314,6 @@ namespace {
     hdsim sim_;
   };
 
-  class CraterSizeHistory: public DiagnosticFunction
-  {
-  public:
-
-    CraterSizeHistory(const string& fname):
-      fname_(fname),
-      r_list_(),
-      v_list_(),
-      t_list_(),
-      x_list_(),
-      y_list_() {}
-
-    void operator()(const hdsim& sim)
-    {
-      const vector<ComputationalCell>& cells = sim.getAllCells();
-      const Tessellation& tess = sim.getTessellation();
-      size_t idx = 0;
-      //double min_vy = 0;
-      double min_y = 0;
-      for(size_t i=0;i<cells.size();++i){
-	const Vector2D r = tess.GetMeshPoint(static_cast<int>(i));
-	if(r.y>min_y)
-	  continue;
-	const ComputationalCell cell = cells.at(i);
-	//const double entropy = log10(cell.pressure)-(5./3.)*log10(cell.density);
-	if(cell.pressure<1e-3)
-	  continue;
-	idx = i;
-	min_y = r.y;
-	//const double candid = cells.at(i).velocity.y;
-	//if(candid<min_vy){
-	// idx = i;
-	//  min_vy = candid;
-	//}
-      }
-      const Vector2D r = tess.GetMeshPoint(static_cast<int>(idx));
-      const ComputationalCell cell = cells.at(idx);
-      r_list_.push_back(abs(r));
-      v_list_.push_back(cell.velocity.y);
-      x_list_.push_back(r.x);
-      y_list_.push_back(r.y);
-      t_list_.push_back(sim.getTime());
-    }
-
-    ~CraterSizeHistory(void)
-    {
-      ofstream f(fname_.c_str());
-      for(size_t i=0;i<r_list_.size();++i)
-	f << t_list_.at(i) << " "
-	  << r_list_.at(i) << " "
-	  << v_list_.at(i) << " "
-	  << x_list_.at(i) << " "
-	  << y_list_.at(i) << endl;
-      f.close();
-    }
-
-  private:
-    const string fname_;
-    mutable vector<double> r_list_;
-    mutable vector<double> v_list_;
-    mutable vector<double> t_list_;
-    mutable vector<double> x_list_;
-    mutable vector<double> y_list_;
-  };
-
   class WriteCycle: public DiagnosticFunction
   {
   public:
@@ -438,7 +373,6 @@ int main(void)
   (VectorInitialiser<DiagnosticFunction*>()
    (new ConsecutiveSnapshots(new ConstantTimeInterval(tf/100),
 			     new Rubric("output/snapshot_",".h5")))
-   (new CraterSizeHistory("crater_size_history.txt"))
    (new WriteTime("time.txt"))
    (new WriteCycle("cycle.txt"))());
   AtmosphereCooling ac;
