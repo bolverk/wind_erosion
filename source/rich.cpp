@@ -112,7 +112,7 @@ namespace {
     vector<ComputationalCell> res(static_cast<size_t>(tess.GetPointNo()));
     for(size_t i=0;i<res.size();++i){
       const Vector2D& r = tess.GetMeshPoint(static_cast<int>(i));
-      res[i].density = abs(r) > 0.1 ? 1 : 1e1;
+      res[i].density = abs(r) > 0.1 ? 1 : 1e2;
       res[i].pressure = 1e-9;
       res[i].velocity = abs(r) > 0.1 ? Vector2D(1,0) : Vector2D(0,0);
     }
