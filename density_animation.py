@@ -24,6 +24,7 @@ def main():
                               50)
             pylab.title('t = %10.2f' % numpy.array(f['time'])[0])
             pylab.colorbar()
+            pylab.axis('equal')
             pylab.savefig(fname.replace('.h5','.png'))
             pylab.close()
 

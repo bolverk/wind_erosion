@@ -36,6 +36,8 @@
 #include "source/misc/vector_initialiser.hpp"
 #include "source/newtonian/test_2d/consecutive_snapshots.hpp"
 #include "source/newtonian/two_dimensional/condition_action_sequence.hpp"
+#include "source/newtonian/two_dimensional/source_terms/cylindrical_complementary.hpp"
+#include "source/newtonian/two_dimensional/source_terms/SeveralSources.hpp"
 
 using namespace std;
 using namespace simulation2d;
@@ -226,22 +228,100 @@ namespace {
     const RiemannSolver& rs_;
   };
 
+  class SelectiveCenterGravity: public Acceleration
+  {
+  public:
+    SelectiveCenterGravity
+    (double M,
+     double Rmin,
+     const Vector2D& centre):
+      M_(M),
+      Rmin_(Rmin),
+      centre_(centre) {}
+
+    Vector2D operator()
+    (const Tessellation& tess,
+     const vector<ComputationalCell>& cells,
+     const vector<Extensive>& /*fluxes*/,
+     const double /*time*/,
+     const int point,
+     TracerStickerNames const& /*tracerstickernames*/) const
+    {
+      if(cells.at(static_cast<size_t>(point)).density<1e-8)
+	return Vector2D(0,0);
+      const Vector2D pos(tess.GetCellCM(point)-centre_);
+      const double r = abs(pos);
+      if(abs(pos-Vector2D(0,-0.04))<0.04)
+	return Vector2D(0,0);
+      return (-1)*pos*M_/(r*r*r+Rmin_*Rmin_*Rmin_);
+    }
+
+  private:
+    const double M_;
+    const double Rmin_;
+    const Vector2D centre_;
+  };
+
+  class PressureFloor: public CellUpdater
+  {
+  public:
+
+    PressureFloor(void) {}
+
+    vector<ComputationalCell> operator()
+      (const Tessellation& tess,
+       const PhysicalGeometry& /*pg*/,
+       const EquationOfState& eos,
+       vector<Extensive>& extensives,
+       const vector<ComputationalCell>& old,
+       const CacheData& cd,
+       TracerStickerNames const& tracerstickernames) const
+    {
+      size_t N = static_cast<size_t>(tess.GetPointNo());
+      vector<ComputationalCell> res(N, old[0]);
+      for(size_t i=0;i<N;++i){
+	Extensive& extensive = extensives[i];
+	const double volume = cd.volumes[i];
+	res[i].density = extensive.mass / volume;
+	if(res[i].density<0)
+	  throw UniversalError("Negative density");
+	res[i].velocity = extensive.momentum / extensive.mass;
+	const double energy = extensive.energy / extensive.mass - 
+	  0.5*ScalarProd(res[i].velocity, res[i].velocity);
+	try{
+	  if(energy>0)
+	    res[i].pressure = eos.de2p(res[i].density,
+				       energy,
+				       res[i].tracers,
+				       tracerstickernames.tracer_names);
+	  else
+	    res[i].pressure = 1e-9;
+	}
+	catch(UniversalError& eo){
+	  eo.AddEntry("cell density", res[i].density);
+	  eo.AddEntry("cell energy", energy);
+	  throw;
+	}
+      }	
+      return res;
+    }
+  };
 
   class SimData
   {
   public:
 
     SimData(void):
-      pg_(),
+      pg_(Vector2D(0,0), Vector2D(1,0)),
       width_(1e0),
-      outer_(-width_,width_,width_,-width_),
+      outer_(-width_,width_,width_,1e-6),
 #ifdef RICH_MPI
 	  vproc_(process_positions(outer_),outer_),
 		init_points_(SquareMeshM(50,50,vproc_,outer_.getBoundary().first,outer_.getBoundary().second)),
 		tess_(vproc_,init_points_,outer_),
 #else
       init_points_(clip_grid
-		   (RightRectangle(Vector2D(-width_,-width_), Vector2D(width_, width_)),
+		   (RightRectangle(Vector2D(-width_,1e-6), Vector2D(width_, width_)),
 		    complete_grid(0.12,
 				  2*width_,
 				  0.005))),
@@ -253,7 +333,14 @@ namespace {
       //      point_motion_(bpm_, eos_),
       sb_(),
       rs_(),
-      force_(),
+      gravity_acc_(1e-2,
+		   0.1,
+		   Vector2D(0,0)),
+      gravity_force_(gravity_acc_),
+      geom_force_(pg_.getAxis()),
+      force_(VectorInitialiser<SourceTerm*>
+	     (&gravity_force_)
+	     (&geom_force_)()),
       tsf_(0.3),
       fc_(VectorInitialiser<pair<const ConditionActionSequence::Condition*, const ConditionActionSequence::Action*> >
 	  (pair<const ConditionActionSequence::Condition*, const ConditionActionSequence::Action*>
@@ -287,7 +374,7 @@ namespace {
     }
 
   private:
-    const SlabSymmetry pg_;
+    const CylindricalSymmetry pg_;
     const double width_;
     const SquareBox outer_;
 #ifdef RICH_MPI
@@ -306,11 +393,15 @@ namespace {
 #endif
     const StationaryBox sb_;
     const Hllc rs_;
-    ZeroForce force_;
+    SelectiveCenterGravity gravity_acc_;
+    ConservativeForce gravity_force_;
+    CylindricalComplementary geom_force_;
+    SeveralSources force_;
     const SimpleCFL tsf_;
     const ConditionActionSequence fc_;
     const SimpleExtensiveUpdater eu_;
-    const SimpleCellUpdater cu_;
+    //    const SimpleCellUpdater cu_;
+    const PressureFloor cu_;
     hdsim sim_;
   };
 
@@ -367,7 +458,7 @@ int main(void)
   hdsim& sim = sim_data.getSim();
   write_snapshot_to_hdf5(sim, "output/initial.h5");
 
-  const double tf = 2e0;
+  const double tf = 1e1;
   SafeTimeTermination term_cond(tf,1e6);
   MultipleDiagnostics diag
   (VectorInitialiser<DiagnosticFunction*>()
